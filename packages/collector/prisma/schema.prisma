@@ -1,0 +1,90 @@
+// Prisma ORM schema mirroring the TypeScript data schemas.
+// Uses SQLite for development/CI and can be swapped to PostgreSQL for production.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Social Media Entities ───────────────────────────────────────────────────
+
+model SocialUser {
+  id           String   @id @default(cuid())
+  platformId   String
+  platform     String
+  username     String
+  displayName  String?
+  profileUrl   String?
+  followerCount Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  posts SocialPost[]
+
+  @@unique([platform, platformId])
+  @@index([platform])
+}
+
+model SocialPost {
+  id           String   @id @default(cuid())
+  platformId   String
+  platform     String
+  url          String?
+  content      String
+  rawContent   String?
+  publishedAt  DateTime
+  collectedAt  DateTime
+  likeCount    Int?
+  shareCount   Int?
+  commentCount Int?
+  tags         String   // JSON array stored as text
+  metadata     String?  // JSON object stored as text
+
+  authorId String
+  author   SocialUser @relation(fields: [authorId], references: [id])
+
+  runId String
+  run   CollectionRun @relation(fields: [runId], references: [id])
+
+  @@unique([platform, platformId])
+  @@index([platform])
+  @@index([publishedAt])
+  @@index([runId])
+}
+
+// ─── Collection Tracking ─────────────────────────────────────────────────────
+
+model CollectionRun {
+  id             String    @id @default(cuid())
+  source         String
+  startedAt      DateTime
+  finishedAt     DateTime?
+  postsCollected Int       @default(0)
+  error          String?
+
+  posts   SocialPost[]
+  results AnalysisResult[]
+
+  @@index([source])
+  @@index([startedAt])
+}
+
+// ─── Analysis Outputs ────────────────────────────────────────────────────────
+
+model AnalysisResult {
+  id              String   @id @default(cuid())
+  analyzedAt      DateTime
+  sentiments      String   // JSON: Record<platformId, SentimentResult>
+  trends          String   // JSON: TrendEntry[]
+  decisions       String   // JSON: AlgorithmDecision[]
+
+  collectionRunId String
+  collectionRun   CollectionRun @relation(fields: [collectionRunId], references: [id])
+
+  @@index([collectionRunId])
+  @@index([analyzedAt])
+}

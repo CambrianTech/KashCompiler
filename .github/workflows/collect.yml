@@ -1,0 +1,150 @@
+name: Collect Social Media Data
+
+on:
+  # Run every 6 hours
+  schedule:
+    - cron: "0 */6 * * *"
+  # Allow manual trigger with custom parameters
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Comma-separated adapter names to run (leave blank for all)"
+        required: false
+        default: ""
+      topics:
+        description: "Comma-separated topics / subreddits to collect"
+        required: false
+        default: "technology,artificial,finance,crypto"
+      max_posts:
+        description: "Maximum posts per adapter"
+        required: false
+        default: "100"
+
+env:
+  DATABASE_URL: "file:./data/collector.db"
+  NODE_VERSION: "20"
+
+jobs:
+  collect:
+    name: Collect & Persist Posts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit the SQLite DB artifact back if desired
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: packages/collector
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: packages/collector
+
+      - name: Run database migrations
+        run: npx prisma migrate deploy
+        working-directory: packages/collector
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Build TypeScript
+        run: npm run build
+        working-directory: packages/collector
+
+      - name: Run data collection
+        run: node dist/runners/collect.js
+        working-directory: packages/collector
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          TWITTER_BEARER_TOKEN: ${{ secrets.TWITTER_BEARER_TOKEN }}
+          REDDIT_API_KEY: ${{ secrets.REDDIT_API_KEY }}
+          COLLECT_SOURCES: ${{ github.event.inputs.sources }}
+          COLLECT_TOPICS: ${{ github.event.inputs.topics || 'technology,artificial,finance,crypto' }}
+          MAX_POSTS_PER_RUN: ${{ github.event.inputs.max_posts || '100' }}
+
+      - name: Upload collected data as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: collected-data-${{ github.run_id }}
+          path: packages/collector/data/
+          retention-days: 30
+
+  analyze:
+    name: Analyze Collected Data
+    needs: collect
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download collected data
+        uses: actions/download-artifact@v4
+        with:
+          name: collected-data-${{ github.run_id }}
+          path: packages/collector/data/
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/analyzer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Rust analyzer
+        run: cargo build --release -p analyzer
+
+      - name: Export posts to JSON for analysis
+        run: |
+          cd packages/collector
+          node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const db = new PrismaClient();
+            db.socialPost.findMany({ include: { author: true } })
+              .then(posts => { console.log(JSON.stringify(posts)); db.\$disconnect(); })
+              .catch(e => { console.error(e); process.exit(1); });
+          " > /tmp/posts.json
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Determine LLM provider
+        id: llm_provider
+        run: |
+          if [ -n "$GROK_API_KEY" ]; then
+            echo "provider=grok" >> "$GITHUB_OUTPUT"
+          else
+            echo "provider=none" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+
+      - name: Run analysis
+        run: |
+          ./target/release/analyzer \
+            --input /tmp/posts.json \
+            --output /tmp/analysis-result.json \
+            --llm ${{ steps.llm_provider.outputs.provider }}
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Upload analysis results
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-result-${{ github.run_id }}
+          path: /tmp/analysis-result.json
+          retention-days: 30

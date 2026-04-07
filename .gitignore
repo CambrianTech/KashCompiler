@@ -137,3 +137,14 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# SQLite database files
+*.db
+packages/collector/data/
+
+# Rust build artifacts
+target/
+
+# Prisma generated files
+node_modules/.prisma/
+
