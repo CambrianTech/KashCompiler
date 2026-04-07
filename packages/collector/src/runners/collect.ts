@@ -24,9 +24,8 @@ async function main(): Promise<void> {
     ? process.env.COLLECT_TOPICS.split(",").map((t) => t.trim())
     : undefined;
 
-  const maxPostsPerRun = process.env.MAX_POSTS_PER_RUN
-    ? parseInt(process.env.MAX_POSTS_PER_RUN, 10)
-    : 100;
+  const parsedMax = parseInt(process.env.MAX_POSTS_PER_RUN ?? "", 10);
+  const maxPostsPerRun = Number.isInteger(parsedMax) && parsedMax > 0 ? parsedMax : 100;
 
   const apiKeyBySource: Record<string, string | undefined> = {
     grok: process.env.GROK_API_KEY,

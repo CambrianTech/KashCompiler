@@ -121,12 +121,23 @@ jobs:
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
 
+      - name: Determine LLM provider
+        id: llm_provider
+        run: |
+          if [ -n "$GROK_API_KEY" ]; then
+            echo "provider=grok" >> "$GITHUB_OUTPUT"
+          else
+            echo "provider=none" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
+
       - name: Run analysis
         run: |
           ./target/release/analyzer \
             --input /tmp/posts.json \
             --output /tmp/analysis-result.json \
-            --llm ${{ secrets.GROK_API_KEY && 'grok' || 'none' }}
+            --llm ${{ steps.llm_provider.outputs.provider }}
         env:
           GROK_API_KEY: ${{ secrets.GROK_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

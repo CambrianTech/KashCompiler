@@ -98,8 +98,12 @@ export async function savePosts(posts: SocialPost[], runId: string): Promise<num
         },
       });
       saved++;
-    } catch {
-      // skip individual post errors to allow the rest of the batch to save
+    } catch (err) {
+      // Log individual post errors but continue saving the rest of the batch
+      console.error(
+        `[orm] Failed to save post ${post.platformId} (${post.platform}):`,
+        err instanceof Error ? err.message : String(err)
+      );
     }
   }
   return saved;
