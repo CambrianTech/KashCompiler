@@ -1,0 +1,20 @@
+{
+  "name": "kashcompiler",
+  "version": "0.1.0",
+  "description": "Social media data gathering, LLM-powered analysis and algorithmic decision making",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "collect": "npm run collect -w packages/collector",
+    "db:generate": "npm run db:generate -w packages/collector",
+    "db:migrate": "npm run db:migrate -w packages/collector"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
